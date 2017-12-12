@@ -1,0 +1,90 @@
+/********************************I2C驱动分析*************************************************/
+
+
+/***adapter client简介***/
+在内核里，i2c驱动框架大概分为两层，adapter驱动和设备驱动，adapter就是适配器的意思，其实adapter指的是mcu里面的i2c控制模块，就是那堆寄存器。
+由于一个mcu里面的i2c控制模块是固定的（寄存器参数、以及收发数据的方法），因此大多数情况下，他们都由芯片厂商写好了。对于s3c2440仅仅有一个i2c_adapter。
+但是别的mcu可能有多个。至于client，它对应于mcu的外围的i2c设备，每一个i2c设备都由一个唯一的client来描述。
+
+struct i2c_adapter {  
+    struct module *owner;  
+    unsigned int id;  
+    unsigned int class;       /* classes to allow probing for */  
+    const struct i2c_algorithm *algo; /* the algorithm to access the bus */  
+    void *algo_data;  
+  
+    /* data fields that are valid for all devices   */  
+    u8 level;           /* nesting level for lockdep */  
+    struct mutex bus_lock;  
+    int timeout;            /* in jiffies */  
+    int retries;  
+    struct device dev;      /* the adapter device */   
+    int nr;  
+    char name[48];  
+    struct completion dev_released;  
+};  
+上面的结构体封装了struct devic，因为它是作为一个设备注册到内核中去的（注册到i2c_bus_type里面），此外struct i2c_algorithm *algo是一个
+非常重要的成员，主要是i2c控制器收发数据的方法。
+struct i2c_algorithm {    
+    int (*master_xfer)(struct i2c_adapter *adap, struct i2c_msg *msgs,  
+               int num);  //对应于i2c协议子集smbus，有些设备只支持这个协议
+    int (*smbus_xfer) (struct i2c_adapter *adap, u16 addr,  
+               unsigned short flags, char read_write,  
+               u8 command, int size, union i2c_smbus_data *data);  //对应于普通的i2c传输协议
+  
+    /* To determine what the adapter supports */  
+    u32 (*functionality) (struct i2c_adapter *);  //用来描述adapter所具有的功能，比如是否支持smbus
+};  
+
+struct i2c_client {  
+    unsigned short flags;       /* div., see below      */  
+    unsigned short addr;        /* chip address - NOTE: 7bit    */  
+                    /* addresses are stored in the  */  
+                    /* _LOWER_ 7 bits       */  
+    char name[I2C_NAME_SIZE];  
+    struct i2c_adapter *adapter;    /* the adapter we sit on    */  
+    struct i2c_driver *driver;  /* and our access routines  */  
+    struct device dev;      /* the device structure     */  
+    int irq;            /* irq issued by device     */  
+    struct list_head detected;  
+};  
+i2c_client本质是是一个i2c_dev，它包含了与它配对的driver，以及它所在的adapter（i2c设备在物理连接上连接到了哪个adapter），
+它也是作为设备注册到i2c_bus_type。
+
+/*****************adapter驱动框架********************/
+2440的i2c_adapter框架是基于platform_bus_type的，当设备或驱动注册到 platform_bus_type 时，首先会查找驱动是否有id_table，
+如果有根据id_table进行匹配（就是看id_table里有无设备的名字），否则匹配设备名字和驱动名字。匹配成功则调用驱动里的probe函数
+
+//设备侧
+根据设备总线驱动模型的分层思想，将一个驱动分为device和driver两层，那么device里提供底层的硬件资源，在driver里取出这些资源进行使用，
+那么可以猜到i2c_adapter驱动的设备侧至少应该包含以下资源：
+1、寄存器地址必须有，因为要使用这些寄存器，不然怎么传输；
+2、中断必须有，i2c传输过程中离不开中断；
+
+//驱动侧
+驱动侧的工作大概是取出设备侧的资源进行利用，比如ioremap、配置寄存器、注册中断等等
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
